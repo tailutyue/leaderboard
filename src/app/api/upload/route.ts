@@ -45,62 +45,93 @@ export async function POST(req: Request) {
       );
     }
 
-    // Save file temporarily
+    // Check file type
+    if (!file.name.endsWith('.xlsx')) {
+      return NextResponse.json(
+        { error: 'Only Excel (.xlsx) files are allowed' },
+        { status: 400 }
+      );
+    }
+
+    // Create temp directory if it doesn't exist
+    const tempDir = path.join(process.cwd(), 'temp');
+    try {
+      await fs.mkdir(tempDir, { recursive: true });
+    } catch (error) {
+      console.error('Error creating temp directory:', error);
+    }
+
+    // Save file temporarily with a unique name
+    const uniqueFilename = `upload-${Date.now()}-${file.name}`;
+    const tempFilePath = path.join(tempDir, uniqueFilename);
+    
     const buffer = Buffer.from(await file.arrayBuffer());
-    const tempFilePath = path.join(process.cwd(), 'temp', file.name);
     await fs.writeFile(tempFilePath, buffer);
 
-    // Read Excel file
-    const workbook = xlsx.readFile(tempFilePath);
-    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-    const data = xlsx.utils.sheet_to_json<ExcelRow>(worksheet);
+    try {
+      // Read Excel file
+      const workbook = xlsx.readFile(tempFilePath);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = xlsx.utils.sheet_to_json<ExcelRow>(worksheet);
 
-    // Process data
-    await prisma.$transaction(async (tx) => {
-      // Clear existing data
-      await tx.cafe.deleteMany();
-      await tx.insights.deleteMany();
-
-      // Insert new cafe data
-      for (const row of data) {
-        await tx.cafe.create({
-          data: {
-            name: row.name,
-            location: row.location,
-            cupsRecycled: row.cupsRecycled,
-            recyclingRate: 0, // Default value
-            trend: 0, // Default value
-            website: '', // Default value
-            wasteReduction: 0, // Default value
-            compostProduced: 0, // Default value
-            contaminationRate: 0, // Default value
-            rank: 0, // Default value
-          },
-        });
+      if (!Array.isArray(data) || data.length === 0) {
+        throw new Error('Invalid Excel data format');
       }
 
-      // Calculate and store insights
-      const totalCups = data.reduce((sum, row) => sum + row.cupsRecycled, 0);
-      const totalCo2 = data.reduce((sum, row) => sum + row.co2Saved, 0);
-      const totalWaste = data.reduce((sum, row) => sum + row.wasteDiverted, 0);
+      // Process data
+      await prisma.$transaction(async (tx) => {
+        // Clear existing data
+        await tx.cafe.deleteMany();
+        await tx.insights.deleteMany();
 
-      await tx.insights.create({
-        data: {
-          cupsRecycled: totalCups,
-          co2Saved: totalCo2,
-          wasteDiverted: totalWaste,
-        },
+        // Insert new cafe data
+        for (const row of data) {
+          await tx.cafe.create({
+            data: {
+              name: row.name,
+              location: row.location,
+              cupsRecycled: row.cupsRecycled,
+              recyclingRate: 0,
+              trend: 0,
+              website: '',
+              wasteReduction: 0,
+              compostProduced: 0,
+              contaminationRate: 0,
+              rank: 0,
+            },
+          });
+        }
+
+        // Calculate and store insights
+        const totalCups = data.reduce((sum, row) => sum + row.cupsRecycled, 0);
+        const totalCo2 = data.reduce((sum, row) => sum + row.co2Saved, 0);
+        const totalWaste = data.reduce((sum, row) => sum + row.wasteDiverted, 0);
+
+        await tx.insights.create({
+          data: {
+            cupsRecycled: totalCups,
+            co2Saved: totalCo2,
+            wasteDiverted: totalWaste,
+          },
+        });
       });
-    });
 
-    // Clean up
-    await fs.unlink(tempFilePath);
-
-    return NextResponse.json({ message: 'Data uploaded successfully' });
+      return NextResponse.json({ 
+        message: 'Data uploaded successfully',
+        rowsProcessed: data.length
+      });
+    } finally {
+      // Clean up temp file
+      try {
+        await fs.unlink(tempFilePath);
+      } catch (error) {
+        console.error('Error deleting temp file:', error);
+      }
+    }
   } catch (error) {
     console.error('Error processing file:', error);
     return NextResponse.json(
-      { error: 'Error processing file' },
+      { error: 'Error processing file', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
