@@ -91,22 +91,24 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
       const response = await fetch('/api/upload', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_API_SECRET_KEY}`
+          'Authorization': 'Bearer 3f19b896c272be18c36df8a155e31e5b8bd0ceba2c5e1f818d71eb63f9121dba'
         },
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed');
       }
 
       const result = await response.json();
+      console.log('Upload result:', result);
       toast.success('Data updated successfully');
       // Fetch updated data
       await fetchData();
     } catch (error) {
-      toast.error('Failed to upload data');
       console.error('Upload error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload data');
     } finally {
       setIsUploading(false);
     }
