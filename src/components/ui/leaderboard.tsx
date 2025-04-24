@@ -46,9 +46,38 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [sortBy, setSortBy] = useState('rank');
   const [filterLocation, setFilterLocation] = useState('All Locations');
+  const [leaderboardData, setLeaderboardData] = useState<CafeData[]>([]);
+  const [insights, setInsights] = useState<any>(null);
 
-  // Get unique locations for filter
-  const locations = ['All Locations', ...new Set(data.rankings.map(cafe => cafe.location))];
+  // Fetch data function
+  const fetchData = async () => {
+    try {
+      // Fetch cafes
+      const cafesResponse = await fetch('/api/cafes');
+      const cafesData = await cafesResponse.json();
+      
+      // Sort and rank cafes
+      const rankedCafes = cafesData.map((cafe: CafeData, index: number) => ({
+        ...cafe,
+        rank: index + 1
+      })).sort((a: CafeData, b: CafeData) => b.cupsRecycled - a.cupsRecycled);
+
+      setLeaderboardData(rankedCafes);
+
+      // Fetch insights
+      const insightsResponse = await fetch('/api/insights');
+      const insightsData = await insightsResponse.json();
+      setInsights(insightsData);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      toast.error('Failed to fetch leaderboard data');
+    }
+  };
+
+  // Fetch data on component mount and after successful upload
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -61,6 +90,9 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
     try {
       const response = await fetch('/api/upload', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_API_SECRET_KEY}`
+        },
         body: formData,
       });
 
@@ -70,13 +102,31 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
 
       const result = await response.json();
       toast.success('Data updated successfully');
-      // Trigger a refresh of the data here if needed
+      // Fetch updated data
+      await fetchData();
     } catch (error) {
       toast.error('Failed to upload data');
       console.error('Upload error:', error);
     } finally {
       setIsUploading(false);
     }
+  };
+
+  // Get unique locations for filter from actual data
+  const locations = ['All Locations', ...new Set(leaderboardData.map(cafe => cafe.location))];
+
+  // Calculate statistics from actual data
+  const stats = {
+    totalCafes: leaderboardData.length,
+    totalCups: leaderboardData.reduce((sum, cafe) => sum + cafe.cupsRecycled, 0),
+    averageRate: leaderboardData.length > 0 
+      ? (leaderboardData.reduce((sum, cafe) => sum + cafe.recyclingRate, 0) / leaderboardData.length).toFixed(1)
+      : 0,
+    topPerformer: leaderboardData[0]?.name || 'N/A',
+    topPerformerRate: leaderboardData[0]?.recyclingRate || 0,
+    cafesChange: 0, // You might want to calculate this from historical data
+    cupsChange: 0,  // You might want to calculate this from historical data
+    rateChange: 0   // You might want to calculate this from historical data
   };
 
   const formattedDate = date ? format(date, 'MMM dd, yyyy') : 'Select date';
@@ -95,12 +145,24 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
               Tracking Hong Kong's cafes making a difference through our cup recycling program.
             </p>
           </div>
-          <button className="bg-[#1c5739] text-white px-6 py-3 rounded-lg font-semibold text-[15px] hover:bg-[#1c5739]/90 transition-colors shadow-sm flex items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-            Join Recycling Program
-          </button>
+          <div className="flex gap-4">
+            <label className="bg-[#1c5739] text-white px-6 py-3 rounded-lg font-semibold text-[15px] hover:bg-[#1c5739]/90 transition-colors shadow-sm cursor-pointer">
+              <input
+                type="file"
+                accept=".xlsx"
+                onChange={handleFileUpload}
+                className="hidden"
+                disabled={isUploading}
+              />
+              {isUploading ? 'Uploading...' : 'Upload Data'}
+            </label>
+            <button className="bg-[#1c5739] text-white px-6 py-3 rounded-lg font-semibold text-[15px] hover:bg-[#1c5739]/90 transition-colors shadow-sm flex items-center gap-2">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              Join Recycling Program
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -110,9 +172,9 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
               <div>
                 <h3 className="text-[14px] text-[#1c5739]/80 font-medium mb-1">Total Participating Cafes</h3>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-[32px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform">{data.totalCafes}</p>
+                  <p className="text-[32px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform">{stats.totalCafes}</p>
                   <span className="text-[14px] text-green-600 font-medium flex items-center">
-                    +{data.cafesChange}
+                    +{stats.cafesChange}
                     <svg className="w-4 h-4 ml-0.5" viewBox="0 0 16 16" fill="none">
                       <path d="M8 4v8M4 8l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
@@ -131,10 +193,10 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
                 <div className="flex-1 h-2 bg-[#1c5739]/10 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-gradient-to-r from-[#1c5739] to-[#2c7d4f] rounded-full transition-all duration-500"
-                    style={{ width: `${(data.cafesChange / data.totalCafes) * 100}%` }}
+                    style={{ width: `${stats.cafesChange}%` }}
                   />
                 </div>
-                <span className="text-[13px] font-medium text-[#1c5739]">{((data.cafesChange / data.totalCafes) * 100).toFixed(1)}%</span>
+                <span className="text-[13px] font-medium text-[#1c5739]">{stats.cafesChange}%</span>
               </div>
             </div>
           </div>
@@ -144,9 +206,9 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
               <div>
                 <h3 className="text-[14px] text-[#1c5739]/80 font-medium mb-1">Cups Recycled This Month</h3>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-[32px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform">{data.totalCups.toLocaleString()}</p>
+                  <p className="text-[32px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform">{stats.totalCups.toLocaleString()}</p>
                   <span className="text-[14px] text-green-600 font-medium flex items-center">
-                    +{data.cupsChange}%
+                    +{stats.cupsChange}%
                     <svg className="w-4 h-4 ml-0.5" viewBox="0 0 16 16" fill="none">
                       <path d="M8 4v8M4 8l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
@@ -178,9 +240,9 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
               <div>
                 <h3 className="text-[14px] text-[#1c5739]/80 font-medium mb-1">Average Recycling Rate</h3>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-[32px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform">{data.averageRate}%</p>
+                  <p className="text-[32px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform">{stats.averageRate}%</p>
                   <span className="text-[14px] text-green-600 font-medium flex items-center">
-                    +{data.rateChange}%
+                    +{stats.rateChange}%
                     <svg className="w-4 h-4 ml-0.5" viewBox="0 0 16 16" fill="none">
                       <path d="M8 4v8M4 8l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
@@ -199,10 +261,10 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
                 <div className="flex-1 h-2 bg-[#1c5739]/10 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-gradient-to-r from-[#1c5739] to-[#2c7d4f] rounded-full transition-all duration-500"
-                    style={{ width: `${data.averageRate}%` }}
+                    style={{ width: `${stats.averageRate}%` }}
                   />
                 </div>
-                <span className="text-[13px] font-medium text-[#1c5739]">{data.averageRate}%</span>
+                <span className="text-[13px] font-medium text-[#1c5739]">{stats.averageRate}%</span>
               </div>
             </div>
           </div>
@@ -212,7 +274,7 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
               <div>
                 <h3 className="text-[14px] text-[#1c5739]/80 font-medium mb-1">Top Performer</h3>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-[28px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform truncate max-w-[180px]">{data.topPerformer}</p>
+                  <p className="text-[28px] font-bold text-[#1c5739] group-hover:scale-105 transition-transform truncate max-w-[180px]">{stats.topPerformer}</p>
                 </div>
               </div>
               <div className="p-3 bg-[#1c5739]/5 rounded-full group-hover:scale-110 transition-transform">
@@ -228,10 +290,10 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
                 <div className="flex-1 h-2 bg-[#1c5739]/10 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-gradient-to-r from-[#1c5739] to-[#2c7d4f] rounded-full transition-all duration-500"
-                    style={{ width: `${data.topPerformerRate}%` }}
+                    style={{ width: `${stats.topPerformerRate}%` }}
                   />
                 </div>
-                <span className="text-[13px] font-medium text-[#1c5739]">{data.topPerformerRate}%</span>
+                <span className="text-[13px] font-medium text-[#1c5739]">{stats.topPerformerRate}%</span>
               </div>
             </div>
           </div>
@@ -296,7 +358,7 @@ export function Leaderboard({ data = mockData }: LeaderboardProps) {
                 </tr>
               </thead>
               <tbody>
-                {data.rankings.map((cafe) => (
+                {leaderboardData.map((cafe) => (
                   <tr 
                     key={cafe.name}
                     className={`

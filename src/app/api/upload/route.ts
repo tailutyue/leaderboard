@@ -27,8 +27,11 @@ const authenticateRequest = (req: Request) => {
 
 export async function POST(req: Request) {
   try {
+    console.log('Starting file upload process...');
+    
     // Check authentication
     if (!authenticateRequest(req)) {
+      console.log('Authentication failed');
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -39,14 +42,18 @@ export async function POST(req: Request) {
     const file = formData.get('file') as File;
     
     if (!file) {
+      console.log('No file provided');
       return NextResponse.json(
         { error: 'No file uploaded' },
         { status: 400 }
       );
     }
 
+    console.log('File received:', file.name);
+
     // Check file type
     if (!file.name.endsWith('.xlsx')) {
+      console.log('Invalid file type');
       return NextResponse.json(
         { error: 'Only Excel (.xlsx) files are allowed' },
         { status: 400 }
@@ -67,12 +74,14 @@ export async function POST(req: Request) {
     
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(tempFilePath, buffer);
+    console.log('File saved temporarily:', tempFilePath);
 
     try {
       // Read Excel file
       const workbook = xlsx.readFile(tempFilePath);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const data = xlsx.utils.sheet_to_json<ExcelRow>(worksheet);
+      console.log('Excel data parsed:', data);
 
       if (!Array.isArray(data) || data.length === 0) {
         throw new Error('Invalid Excel data format');
@@ -80,13 +89,19 @@ export async function POST(req: Request) {
 
       // Process data
       await prisma.$transaction(async (tx) => {
+        console.log('Starting database transaction...');
+        
         // Clear existing data
-        await tx.cafe.deleteMany();
-        await tx.insights.deleteMany();
+        const deletedCafes = await tx.cafe.deleteMany();
+        console.log('Deleted existing cafes:', deletedCafes.count);
+        
+        const deletedInsights = await tx.insights.deleteMany();
+        console.log('Deleted existing insights:', deletedInsights.count);
 
         // Insert new cafe data
+        console.log('Inserting new cafe data...');
         for (const row of data) {
-          await tx.cafe.create({
+          const cafe = await tx.cafe.create({
             data: {
               name: row.name,
               location: row.location,
@@ -100,6 +115,7 @@ export async function POST(req: Request) {
               rank: 0,
             },
           });
+          console.log('Created cafe:', cafe.name);
         }
 
         // Calculate and store insights
@@ -107,14 +123,19 @@ export async function POST(req: Request) {
         const totalCo2 = data.reduce((sum, row) => sum + row.co2Saved, 0);
         const totalWaste = data.reduce((sum, row) => sum + row.wasteDiverted, 0);
 
-        await tx.insights.create({
+        console.log('Calculated totals:', { totalCups, totalCo2, totalWaste });
+
+        const insights = await tx.insights.create({
           data: {
             cupsRecycled: totalCups,
             co2Saved: totalCo2,
             wasteDiverted: totalWaste,
           },
         });
+        console.log('Created insights:', insights);
       });
+
+      console.log('Database transaction completed successfully');
 
       return NextResponse.json({ 
         message: 'Data uploaded successfully',
@@ -124,6 +145,7 @@ export async function POST(req: Request) {
       // Clean up temp file
       try {
         await fs.unlink(tempFilePath);
+        console.log('Temporary file deleted');
       } catch (error) {
         console.error('Error deleting temp file:', error);
       }
