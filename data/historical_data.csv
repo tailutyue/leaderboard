@@ -1,0 +1,7 @@
+totalCafes,cafesChange,totalCups,cupsChange,averageRate,rateChange,topPerformer,topPerformerRate,date
+10,2,6690,450,74.78,1.2,"Green Bean Coffee",85.5,"2024-03-01"
+8,-1,6240,-120,73.58,-0.5,"Green Bean Coffee",84.8,"2024-02-01"
+9,1,6360,380,74.08,0.8,"Eco Brew",83.2,"2024-01-01"
+8,0,5980,220,73.28,0.4,"Sustainable Sips",82.5,"2023-12-01"
+8,1,5760,280,72.88,0.6,"Coffee Planet",81.8,"2023-11-01"
+7,0,5480,180,72.28,0.3,"The Daily Grind",80.2,"2023-10-01" 
